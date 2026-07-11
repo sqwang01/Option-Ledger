@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ledger">
+<meta name="theme-color" content="#0C1118">
+<title>Premium Ledger</title>
+<style>
+  /* ============================================================
+     PREMIUM LEDGER — options-selling tracker
+     Palette: cool ink base, emerald = money kept, amber = capital
+     at risk, violet = puts, cyan = calls, red = loss.
+     Signature: every figure set in tabular mono so the ledger
+     columns align, and a "time decay" bar on each position that
+     fills from entry to expiration.
+     ============================================================ */
+  :root{
+    --bg:#0C1118; --bg-grad:#0A0E14;
+    --surface:#141C27; --surface-2:#1A2432; --surface-3:#212D3D;
+    --line:#26313F; --line-soft:#1E2632;
+    --text:#E9EEF4; --muted:#8A98A9; --faint:#5B6a7c;
+    --emerald:#35D399; --emerald-dim:rgba(53,211,153,.13);
+    --amber:#F2B33D; --amber-dim:rgba(242,179,61,.13);
+    --violet:#9C8BFF; --violet-dim:rgba(156,139,255,.15);
+    --cyan:#3FC7F2; --cyan-dim:rgba(63,199,242,.15);
+    --red:#FF6E6E; --red-dim:rgba(255,110,110,.13);
+    --r:14px; --r-lg:20px;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-t:env(safe-area-inset-top,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--sans);
+    background:
+      radial-gradient(120% 60% at 50% -10%, #16202E 0%, transparent 55%),
+      linear-gradient(180deg,var(--bg) 0%,var(--bg-grad) 100%);
+    background-attachment:fixed;
+    color:var(--text);
+    min-height:100dvh;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.4;
+  }
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:600}
+
+  /* ---- app shell ---- */
+  #app{max-width:520px;margin:0 auto;padding:calc(var(--safe-t) + 14px) 16px calc(96px + var(--safe-b)) 16px}
+
+  header.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  header.top h1{font-size:19px;font-weight:700;letter-spacing:-.02em;margin:0;display:flex;align-items:center;gap:9px}
+  header.top h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--emerald);box-shadow:0 0 12px var(--emerald)}
+  .sync{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border:1px solid var(--line);padding:5px 10px;border-radius:999px;background:var(--surface)}
+  .sync .led{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:.3s}
+  .sync.on .led{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
+  .sync.busy .led{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:pulse 1s infinite}
+  .sync.err .led{background:var(--red)}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* ---- summary hero ---- */
+  .hero{
+    background:linear-gradient(155deg,var(--surface-2),var(--surface));
+    border:1px solid var(--line);border-radius:var(--r-lg);
+    padding:18px;margin-bottom:16px;position:relative;overflow:hidden
+  }
+  .hero::before{content:"";position:absolute;inset:0;background:radial-gradient(80% 120% at 100% 0,var(--emerald-dim),transparent 60%);pointer-events:none}
+  .hero .lead-label{display:flex;align-items:center;gap:7px;margin-bottom:2px}
+  .hero .lead-num{font-size:38px;font-weight:700;color:var(--emerald);margin:2px 0 14px}
+  .hero-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;position:relative}
+  .hero-grid .cell .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:3px}
+  .hero-grid .cell .v{font-size:16px;font-weight:600}
+  .hero-grid .cell .v.amber{color:var(--amber)}
+  .hero-grid .cell .v.small{font-size:13px}
+
+  /* ---- list controls ---- */
+  .list-head{display:flex;align-items:center;justify-content:space-between;margin:6px 2px 12px}
+  .list-head .eyebrow{color:var(--muted)}
+  .seg-mini{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px}
+  .seg-mini button{border:0;background:transparent;color:var(--muted);font-size:11px;font-weight:600;padding:5px 11px;border-radius:999px;font-family:var(--sans)}
+  .seg-mini button.active{background:var(--surface-3);color:var(--text)}
+
+  /* ---- position card ---- */
+  .card{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:14px 14px 12px;margin-bottom:11px;transition:border-color .2s
+  }
+  .card.closed{opacity:.72}
+  .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .sym-wrap{display:flex;align-items:center;gap:9px;min-width:0}
+  .sym{font-size:17px;font-weight:700;letter-spacing:-.01em}
+  .badge{font-size:10px;font-weight:700;letter-spacing:.08em;padding:3px 7px;border-radius:6px;text-transform:uppercase}
+  .badge.put{color:var(--violet);background:var(--violet-dim)}
+  .badge.call{color:var(--cyan);background:var(--cyan-dim)}
+  .chip{font-size:10px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}
+  .chip.open{color:var(--emerald);background:var(--emerald-dim)}
+  .chip.expired{color:var(--emerald);background:var(--emerald-dim)}
+  .chip.assigned{color:var(--amber);background:var(--amber-dim)}
+  .chip.closed{color:var(--muted);background:var(--surface-3)}
+  .chip.rolled{color:var(--cyan);background:var(--cyan-dim)}
+  .contract-line{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .card-prem{text-align:right;flex-shrink:0}
+  .card-prem .p{font-size:20px;font-weight:700;color:var(--emerald)}
+  .card-prem .l{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .card-prem .p.loss{color:var(--red)}
+  .card-prem .p.win{color:var(--emerald)}
+
+  /* time-decay bar */
+  .decay{margin:13px 0 11px}
+  .decay-track{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;position:relative}
+  .decay-fill{height:100%;border-radius:4px;transition:width .4s}
+  .decay-meta{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)}
+  .decay-meta .dte{font-weight:600}
+
+  .stat-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;padding-top:10px;border-top:1px solid var(--line-soft)}
+  .stat{min-width:0}
+  .stat .k{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:2px;white-space:nowrap}
+  .stat .v{font-size:13px;font-weight:600}
+
+  .card-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px;padding-top:12px;border-top:1px solid var(--line-soft)}
+  .card-actions.hidden{display:none}
+  .act{flex:1 1 auto;min-width:calc(33% - 5px);border:1px solid var(--line);background:var(--surface-2);color:var(--text);font-size:12px;font-weight:600;padding:9px 6px;border-radius:10px;font-family:var(--sans)}
+  .act:active{background:var(--surface-3)}
+  .act.danger{color:var(--red);border-color:var(--red-dim)}
+  .act.primary{color:var(--emerald);border-color:var(--emerald-dim)}
+  .expand-hint{text-align:center;font-size:11px;color:var(--faint);margin-top:10px;letter-spacing:.04em}
+
+  .close-form{margin-top:12px;padding-top:12px;border-top:1px solid var(--line-soft);display:none}
+  .close-form.show{display:block}
+  .close-form .cf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+
+  /* ---- empty state ---- */
+  .empty{text-align:center;padding:56px 20px;color:var(--muted)}
+  .empty .big{font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px}
+  .empty .sub{font-size:13px;line-height:1.5}
+
+  /* ---- form view ---- */
+  .form-wrap{}
+  .field{margin-bottom:16px}
+  .field > label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px;letter-spacing:.02em}
+  .field .opt{color:var(--faint);font-weight:500}
+  input[type=text],input[type=number],input[type=date],textarea{
+    width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    color:var(--text);font-size:16px;padding:13px 14px;font-family:var(--sans);outline:none;transition:border-color .15s
+  }
+  input.num,.num-input{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  input:focus,textarea:focus{border-color:var(--emerald)}
+  input::placeholder{color:var(--faint)}
+  input[type=date]{-webkit-appearance:none;appearance:none}
+  input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.7);opacity:.7}
+  textarea{resize:none;min-height:64px;line-height:1.5}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .prefix-wrap{position:relative}
+  .prefix-wrap .pfx{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--faint);font-family:var(--mono);font-size:15px;pointer-events:none}
+  .prefix-wrap input{padding-left:28px}
+
+  /* put/call toggle */
+  .pc-toggle{display:grid;grid-template-columns:1fr 1fr;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:5px;position:relative}
+  .pc-toggle button{border:0;background:transparent;color:var(--muted);font-size:15px;font-weight:700;padding:15px 0;border-radius:10px;font-family:var(--sans);letter-spacing:.02em;transition:.2s;z-index:1}
+  .pc-toggle button.active[data-pc=put]{background:var(--violet-dim);color:var(--violet)}
+  .pc-toggle button.active[data-pc=call]{background:var(--cyan-dim);color:var(--cyan)}
+
+  /* live preview */
+  .preview{background:linear-gradient(150deg,var(--surface-2),var(--surface));border:1px solid var(--line);border-radius:var(--r);padding:15px;margin:20px 0}
+  .preview .pv-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+  .preview .pv-head .eyebrow{color:var(--muted)}
+  .preview .pv-total{font-size:24px;font-weight:700;color:var(--emerald)}
+  .pv-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 10px}
+  .pv-grid .pv{min-width:0}
+  .pv-grid .pv .k{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:2px}
+  .pv-grid .pv .v{font-size:14px;font-weight:600}
+
+  .save-btn{width:100%;background:var(--emerald);color:#06231A;font-size:16px;font-weight:700;border:0;border-radius:14px;padding:16px;font-family:var(--sans);margin-top:4px;letter-spacing:.01em}
+  .save-btn:active{opacity:.85}
+  .save-btn:disabled{opacity:.4}
+  .details-toggle{width:100%;background:transparent;border:1px dashed var(--line);color:var(--muted);font-size:13px;font-weight:600;padding:12px;border-radius:12px;font-family:var(--sans);margin-bottom:16px}
+  .details-body{display:none}
+  .details-body.show{display:block}
+
+  /* ---- bottom nav ---- */
+  .navbar{position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:rgba(12,17,24,.86);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+    padding:8px 0 calc(8px + var(--safe-b));display:flex;justify-content:center;gap:8px}
+  .navbar .inner{width:100%;max-width:520px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:0 16px}
+  .nav-btn{border:0;background:transparent;color:var(--faint);display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;border-radius:12px;font-family:var(--sans);font-size:10.5px;font-weight:600;letter-spacing:.02em}
+  .nav-btn svg{width:23px;height:23px}
+  .nav-btn.active{color:var(--emerald)}
+  .nav-btn.new-btn.active{color:var(--emerald)}
+
+  /* ---- settings modal ---- */
+  .modal-scrim{position:fixed;inset:0;background:rgba(4,7,11,.7);backdrop-filter:blur(4px);z-index:100;display:none;align-items:flex-end;justify-content:center}
+  .modal-scrim.show{display:flex}
+  .modal{width:100%;max-width:520px;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:22px 22px 0 0;padding:22px 18px calc(24px + var(--safe-b));animation:slideup .28s cubic-bezier(.2,.8,.2,1)}
+  @keyframes slideup{from{transform:translateY(30px);opacity:.4}}
+  .modal h2{font-size:17px;margin:0 0 4px;font-weight:700}
+  .modal p.sub{font-size:12.5px;color:var(--muted);margin:0 0 18px;line-height:1.5}
+  .modal .close-x{position:absolute;right:22px;top:20px;background:var(--surface-3);border:0;color:var(--muted);width:30px;height:30px;border-radius:50%;font-size:16px}
+  .steps{font-size:12.5px;color:var(--muted);line-height:1.6;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:14px}
+  .steps b{color:var(--text)}
+  .steps code{font-family:var(--mono);font-size:11px;background:var(--bg);padding:1px 5px;border-radius:5px;color:var(--emerald)}
+
+  /* ---- toast ---- */
+  #toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:calc(100px + var(--safe-b));background:var(--surface-3);border:1px solid var(--line);color:var(--text);font-size:13px;font-weight:600;padding:11px 18px;border-radius:12px;z-index:200;opacity:0;transition:.3s;pointer-events:none;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.err{border-color:var(--red-dim);color:var(--red)}
+
+  .view{display:none}
+  .view.active{display:block;animation:fade .25s}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <h1><span class="dot"></span>Premium Ledger</h1>
+    <div class="sync" id="syncPill"><span class="led"></span><span id="syncTxt">Local</span></div>
+  </header>
+
+  <!-- ============ POSITIONS VIEW ============ -->
+  <section class="view active" id="view-positions">
+    <div class="hero">
+      <div class="lead-label"><span class="eyebrow">Premium collected · all-time</span></div>
+      <div class="lead-num num" id="sumPremium">$0</div>
+      <div class="hero-grid">
+        <div class="cell"><div class="k">At risk</div><div class="v amber num" id="sumRisk">$0</div></div>
+        <div class="cell"><div class="k">Open</div><div class="v num" id="sumOpen">0</div></div>
+        <div class="cell"><div class="k">Next exp.</div><div class="v small num" id="sumNext">—</div></div>
+      </div>
+    </div>
+
+    <div class="list-head">
+      <span class="eyebrow">Positions</span>
+      <div class="seg-mini" id="sortSeg">
+        <button data-sort="exp" class="active">Expiration</button>
+        <button data-sort="prem">Premium</button>
+        <button data-sort="open">Open</button>
+      </div>
+    </div>
+
+    <div id="posList"></div>
+  </section>
+
+  <!-- ============ NEW / EDIT VIEW ============ -->
+  <section class="view" id="view-new">
+    <div class="list-head"><span class="eyebrow" id="formTitle">New position</span></div>
+    <div class="form-wrap">
+      <div class="field">
+        <label>Symbol</label>
+        <input type="text" id="f-symbol" placeholder="AAPL" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="6">
+      </div>
+
+      <div class="field">
+        <label>Type</label>
+        <div class="pc-toggle" id="pcToggle">
+          <button type="button" data-pc="put">Put</button>
+          <button type="button" data-pc="call" class="active">Call</button>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="field">
+          <label>Strike</label>
+          <div class="prefix-wrap"><span class="pfx">$</span>
+            <input type="number" id="f-strike" class="num" inputmode="decimal" placeholder="0.00" step="0.01">
+          </div>
+        </div>
+        <div class="field">
+          <label>Premium <span class="opt">/ share</span></label>
+          <div class="prefix-wrap"><span class="pfx">$</span>
+            <input type="number" id="f-premium" class="num" inputmode="decimal" placeholder="0.00" step="0.01">
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="field">
+          <label>Expiration</label>
+          <input type="date" id="f-exp">
+        </div>
+        <div class="field">
+          <label>Contracts</label>
+          <input type="number" id="f-contracts" class="num" inputmode="numeric" placeholder="1" step="1" min="1" value="1">
+        </div>
+      </div>
+
+      <button type="button" class="details-toggle" id="detailsToggle">＋ Optional details (entry date, cost basis, notes)</button>
+      <div class="details-body" id="detailsBody">
+        <div class="two-col">
+          <div class="field">
+            <label>Entry date</label>
+            <input type="date" id="f-entry">
+          </div>
+          <div class="field">
+            <label>Cost basis <span class="opt">/ share</span></label>
+            <div class="prefix-wrap"><span class="pfx">$</span>
+              <input type="number" id="f-cost" class="num" inputmode="decimal" placeholder="—" step="0.01">
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Notes</label>
+          <textarea id="f-notes" placeholder="Wheel on AAPL, rolled from Dec…"></textarea>
+        </div>
+      </div>
+
+      <div class="preview">
+        <div class="pv-head">
+          <span class="eyebrow">Projected max profit</span>
+          <span class="pv-total num" id="pv-total">$0</span>
+        </div>
+        <div class="pv-grid">
+          <div class="pv"><div class="k">Break-even</div><div class="v num" id="pv-be">—</div></div>
+          <div class="pv"><div class="k">Collateral</div><div class="v num" id="pv-coll">—</div></div>
+          <div class="pv"><div class="k">Days to exp.</div><div class="v num" id="pv-dte">—</div></div>
+          <div class="pv"><div class="k">Return on cap.</div><div class="v num" id="pv-roc">—</div></div>
+          <div class="pv"><div class="k">Annualized</div><div class="v num" id="pv-ann">—</div></div>
+          <div class="pv"><div class="k">Term</div><div class="v num" id="pv-term">—</div></div>
+        </div>
+      </div>
+
+      <button class="save-btn" id="saveBtn">Save position</button>
+    </div>
+  </section>
+</div>
+
+<!-- ============ BOTTOM NAV ============ -->
+<nav class="navbar">
+  <div class="inner">
+    <button class="nav-btn active" data-nav="positions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="19" x2="4" y2="10"/><line x1="10" y1="19" x2="10" y2="4"/><line x1="16" y1="19" x2="16" y2="13"/><line x1="20" y1="19" x2="20" y2="7"/></svg>
+      Positions
+    </button>
+    <button class="nav-btn new-btn" data-nav="new">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      New
+    </button>
+    <button class="nav-btn" data-nav="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </button>
+  </div>
+</nav>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div class="modal-scrim" id="settingsModal">
+  <div class="modal">
+    <button class="close-x" id="closeSettings">×</button>
+    <h2>Google Sheet sync</h2>
+    <p class="sub">Paste the Web App URL from your Apps Script deployment. Your positions are read from and written to that sheet.</p>
+    <div class="field">
+      <label>Apps Script Web App URL</label>
+      <input type="text" id="f-url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="save-btn" id="saveUrlBtn">Connect &amp; sync</button>
+    <div class="steps">
+      <b>One-time setup</b><br>
+      1. Open a new Google Sheet → <b>Extensions ▸ Apps Script</b>.<br>
+      2. Paste the <code>Code.gs</code> script I gave you, then <b>Deploy ▸ New deployment ▸ Web app</b>.<br>
+      3. Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>.<br>
+      4. Copy the <code>/exec</code> URL and paste it above.<br><br>
+      <b>Best option:</b> paste that URL once into the <code>SHEET_WEBAPP_URL</code> constant near the top of this file's code, and it connects automatically every launch — no localStorage needed.
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+   CONFIG — paste your deployed Apps Script /exec URL here once
+   and the app auto-connects on every launch.
+   ============================================================ */
+const SHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbye9CPGQgPbSh8hdP5rMDbszz7GuBorMCebkLj2IZucr6oNj1__IL8ifY_Ba8NpIAUT/exec"; // auto-connects on launch
+
+/* ---------------- state ---------------- */
+let positions = [];               // in-memory source mirror of the sheet
+let sortMode = "exp";
+let editingId = null;             // id being edited, else null
+let expandedId = null;            // card whose actions are open
+let webAppUrl = SHEET_WEBAPP_URL;
+let pcType = "call";
+
+/* ---------------- helpers ---------------- */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const int = v => { const n = parseInt(v,10); return isNaN(n) ? 0 : n; };
+
+function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+function parseDate(s){ if(!s) return null; const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
+function todayStr(){ const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function daysBetween(a,b){ return Math.round((startOfDay(b) - startOfDay(a)) / 86400000); }
+
+function money(n){
+  const neg = n < 0; const v = Math.abs(n);
+  const s = v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  return (neg?"-$":"$") + s;
+}
+function money0(n){ return "$" + Math.round(n).toLocaleString("en-US"); }
+function pct(n){ return (n*100).toFixed(n*100>=100?0:1) + "%"; }
+function shortDate(s){ const d = parseDate(s); if(!d) return "—"; return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
+
+/* ---------------- calculations ---------------- */
+function derive(p){
+  const per = num(p.premium);
+  const contracts = int(p.contracts) || 1;
+  const strike = num(p.strike);
+  const cost = num(p.costBasis);
+  const totalPremium = per * 100 * contracts;
+  const today = startOfDay(new Date());
+  const exp = parseDate(p.expiration);
+  const entry = parseDate(p.entryDate) || today;
+  const dte = exp ? daysBetween(today, exp) : 0;
+  const term = exp ? Math.max(1, daysBetween(entry, exp)) : 1;
+  const breakEven = p.type === "put" ? strike - per : strike + per;
+  let collateral;
+  if(p.type === "put") collateral = strike * 100 * contracts;
+  else collateral = (cost > 0 ? cost : strike) * 100 * contracts;
+  const roc = collateral > 0 ? totalPremium / collateral : 0;
+  const annualized = term > 0 ? roc * 365 / term : 0;
+  const maxProfit = totalPremium;
+  const elapsedDays = Math.min(term, Math.max(0, daysBetween(entry, today)));
+  const elapsedPct = term > 0 ? Math.min(1, Math.max(0, elapsedDays / term)) : 0;
+
+  // realized P/L for closed states
+  let realizedPL = "", daysHeld = "";
+  if(p.status === "Expired Worthless" || p.status === "Assigned"){
+    realizedPL = totalPremium;
+    const cd = parseDate(p.closeDate) || exp;
+    daysHeld = cd ? daysBetween(entry, cd) : "";
+  } else if(p.status === "Closed" || p.status === "Rolled"){
+    const bb = num(p.buyBackPremium) * 100 * contracts;
+    realizedPL = totalPremium - bb;
+    const cd = parseDate(p.closeDate) || today;
+    daysHeld = daysBetween(entry, cd);
+  }
+
+  return {totalPremium,dte,term,breakEven,collateral,roc,annualized,maxProfit,elapsedPct,realizedPL,daysHeld};
+}
+
+/* ---------------- rendering ---------------- */
+function isOpen(p){ return p.status === "Open"; }
+
+function renderSummary(){
+  const totalPrem = positions.reduce((s,p)=>s + derive(p).totalPremium, 0);
+  const open = positions.filter(isOpen);
+  const risk = open.reduce((s,p)=>s + derive(p).collateral, 0);
+  const nextDte = open.length ? Math.min(...open.map(p=>derive(p).dte)) : null;
+  $("#sumPremium").textContent = money0(totalPrem);
+  $("#sumRisk").textContent = money0(risk);
+  $("#sumOpen").textContent = open.length;
+  if(nextDte === null) $("#sumNext").textContent = "—";
+  else $("#sumNext").textContent = nextDte < 0 ? "past due" : nextDte + "d";
+}
+
+function decayColor(pctElapsed, dte){
+  if(dte < 0) return "var(--faint)";
+  if(pctElapsed < 0.5) return "var(--emerald)";
+  if(pctElapsed < 0.8) return "var(--amber)";
+  return "var(--red)";
+}
+
+function sortPositions(list){
+  const arr = list.slice();
+  if(sortMode === "exp") arr.sort((a,b)=>(a.expiration||"9999").localeCompare(b.expiration||"9999"));
+  else if(sortMode === "prem") arr.sort((a,b)=>derive(b).totalPremium - derive(a).totalPremium);
+  else if(sortMode === "open") arr.sort((a,b)=>(isOpen(b)-isOpen(a)) || (a.expiration||"9999").localeCompare(b.expiration||"9999"));
+  return arr;
+}
+
+function statusChipClass(s){
+  return ({"Open":"open","Expired Worthless":"expired","Assigned":"assigned","Closed":"closed","Rolled":"rolled"})[s] || "closed";
+}
+function statusLabel(s){ return s === "Expired Worthless" ? "Expired" : s; }
+
+function renderList(){
+  const host = $("#posList");
+  if(!positions.length){
+    host.innerHTML = `<div class="empty"><div class="big">No positions yet</div><div class="sub">Tap <b>New</b> below to log your first put or call.<br>Everything else gets calculated for you.</div></div>`;
+    return;
+  }
+  host.innerHTML = "";
+  sortPositions(positions).forEach(p=>{
+    const d = derive(p);
+    const open = isOpen(p);
+    const el = document.createElement("div");
+    el.className = "card" + (open ? "" : " closed");
+
+    const dteTxt = d.dte < 0 ? `${Math.abs(d.dte)}d past` : `${d.dte}d left`;
+    const premBlock = (!open && d.realizedPL !== "")
+      ? `<div class="p num ${d.realizedPL>=0?'win':'loss'}">${money(d.realizedPL)}</div><div class="l">realized P/L</div>`
+      : `<div class="p num">${money(d.totalPremium)}</div><div class="l">premium</div>`;
+
+    el.innerHTML = `
+      <div class="card-top">
+        <div class="sym-wrap">
+          <span class="sym">${escapeHtml(p.symbol||"—")}</span>
+          <span class="badge ${p.type}">${p.type}</span>
+        </div>
+        <div class="card-prem">${premBlock}</div>
+      </div>
+      <div class="contract-line num">${int(p.contracts)}× · $${fmtStrike(p.strike)} strike · exp ${shortDate(p.expiration)}${p.entryDate?` · in ${shortDate(p.entryDate)}`:""}</div>
+
+      ${open ? `<div class="decay">
+        <div class="decay-track"><div class="decay-fill" style="width:${(d.elapsedPct*100).toFixed(0)}%;background:${decayColor(d.elapsedPct,d.dte)}"></div></div>
+        <div class="decay-meta"><span>time decay</span><span class="dte num" style="color:${decayColor(d.elapsedPct,d.dte)}">${dteTxt}</span></div>
+      </div>` : `<div style="height:10px"></div>`}
+
+      <div class="stat-row">
+        <div class="stat"><div class="k">Break-even</div><div class="v num">$${fmtStrike(d.breakEven)}</div></div>
+        <div class="stat"><div class="k">Collateral</div><div class="v num">${money0(d.collateral)}</div></div>
+        <div class="stat"><div class="k">Return</div><div class="v num">${pct(d.roc)}</div></div>
+        <div class="stat"><div class="k">Annual.</div><div class="v num">${pct(d.annualized)}</div></div>
+      </div>
+
+      <div class="expand-hint" data-role="hint">${expandedId===p.id?"":"tap to manage ▾"}</div>
+
+      <div class="card-actions ${expandedId===p.id?"":"hidden"}" data-role="actions">
+        ${open ? `
+          <button class="act primary" data-a="expire" data-id="${p.id}">Expired ✓</button>
+          <button class="act" data-a="assign" data-id="${p.id}">Assigned</button>
+          <button class="act" data-a="close" data-id="${p.id}">Buy to close</button>
+          <button class="act" data-a="roll" data-id="${p.id}">Roll</button>
+        ` : `
+          <span class="chip ${statusChipClass(p.status)}" style="align-self:center;padding:8px 12px">${statusLabel(p.status)}${d.daysHeld!==""?` · held ${d.daysHeld}d`:""}</span>
+          <button class="act" data-a="reopen" data-id="${p.id}">Reopen</button>
+        `}
+        <button class="act" data-a="edit" data-id="${p.id}">Edit</button>
+        <button class="act danger" data-a="delete" data-id="${p.id}">Delete</button>
+      </div>
+
+      <div class="close-form" data-role="closeform" data-id="${p.id}">
+        <div class="cf-grid">
+          <div class="field" style="margin:0"><label>Buy-back <span class="opt">/ share</span></label>
+            <div class="prefix-wrap"><span class="pfx">$</span><input type="number" class="num cf-bb" inputmode="decimal" placeholder="0.00" step="0.01"></div>
+          </div>
+          <div class="field" style="margin:0"><label>Close date</label><input type="date" class="cf-date" value="${todayStr()}"></div>
+        </div>
+        <button class="save-btn cf-confirm" style="padding:13px">Confirm</button>
+      </div>
+    `;
+
+    // expand/collapse on card body tap (not on buttons/inputs)
+    el.addEventListener("click", e=>{
+      if(e.target.closest("[data-a]") || e.target.closest("[data-role=closeform]") || e.target.closest("input")) return;
+      expandedId = expandedId === p.id ? null : p.id;
+      renderList();
+    });
+    host.appendChild(el);
+  });
+
+  // wire action buttons
+  $$("[data-a]").forEach(btn=>{
+    btn.addEventListener("click", e=>{ e.stopPropagation(); handleAction(btn.dataset.a, btn.dataset.id, btn); });
+  });
+}
+
+function fmtStrike(n){ const v = num(n); return v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* ---------------- actions ---------------- */
+function handleAction(action, id, btn){
+  const p = positions.find(x=>x.id===id);
+  if(!p) return;
+  if(action === "delete"){ deletePosition(id); return; }
+  if(action === "edit"){ startEdit(p); return; }
+  if(action === "reopen"){ p.status = "Open"; p.closeDate=""; p.buyBackPremium=""; commit(p); return; }
+  if(action === "expire"){ p.status = "Expired Worthless"; p.closeDate = p.expiration || todayStr(); commit(p); toast("Marked expired · full premium kept"); return; }
+  if(action === "assign"){ p.status = "Assigned"; p.closeDate = p.expiration || todayStr(); commit(p); toast("Marked assigned"); return; }
+  if(action === "close" || action === "roll"){
+    // open inline close form
+    const card = btn.closest(".card");
+    const form = card.querySelector("[data-role=closeform]");
+    const opening = !form.classList.contains("show");
+    $$(".close-form").forEach(f=>f.classList.remove("show"));
+    if(opening){
+      form.classList.add("show");
+      form.querySelector(".cf-confirm").onclick = ()=>{
+        const bb = form.querySelector(".cf-bb").value;
+        const cd = form.querySelector(".cf-date").value || todayStr();
+        p.status = action === "roll" ? "Rolled" : "Closed";
+        p.buyBackPremium = num(bb);
+        p.closeDate = cd;
+        const rpl = derive(p).realizedPL;
+        commit(p);
+        toast(`${p.status} · realized ${money(rpl)}`);
+      };
+    }
+  }
+}
+
+/* ---------------- CRUD + sheet sync ---------------- */
+function commit(p){
+  const i = positions.findIndex(x=>x.id===p.id);
+  if(i>=0) positions[i] = p; else positions.push(p);
+  expandedId = null;
+  renderAll();
+  pushToSheet(p);
+}
+function deletePosition(id){
+  positions = positions.filter(x=>x.id!==id);
+  expandedId = null;
+  renderAll();
+  pushDelete(id);
+  toast("Deleted");
+}
+
+function serialize(p){
+  const d = derive(p);
+  return {
+    id:p.id, timestamp:new Date().toISOString(), status:p.status,
+    symbol:p.symbol, type:p.type, strike:num(p.strike), expiration:p.expiration,
+    contracts:int(p.contracts), premium:num(p.premium), entryDate:p.entryDate,
+    costBasis:p.costBasis===""?"":num(p.costBasis), notes:p.notes||"",
+    totalPremium:d.totalPremium, dte:d.dte, breakEven:round2(d.breakEven),
+    collateral:d.collateral, roc:round4(d.roc), annualized:round4(d.annualized),
+    maxProfit:d.maxProfit, closeDate:p.closeDate||"",
+    buyBackPremium:p.buyBackPremium===""||p.buyBackPremium===undefined?"":num(p.buyBackPremium),
+    realizedPL:d.realizedPL===""?"":round2(d.realizedPL), daysHeld:d.daysHeld
+  };
+}
+const round2 = n => typeof n==="number" ? Math.round(n*100)/100 : n;
+const round4 = n => typeof n==="number" ? Math.round(n*10000)/10000 : n;
+
+async function pushToSheet(p){
+  if(!webAppUrl) return;
+  setSync("busy");
+  try{
+    await fetch(webAppUrl, {
+      method:"POST", mode:"cors",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({action:"upsert", position:serialize(p)})
+    });
+    setSync("on");
+  }catch(err){ setSync("err"); }
+}
+async function pushDelete(id){
+  if(!webAppUrl) return;
+  setSync("busy");
+  try{
+    await fetch(webAppUrl, {
+      method:"POST", mode:"cors",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({action:"delete", id})
+    });
+    setSync("on");
+  }catch(err){ setSync("err"); }
+}
+async function loadFromSheet(){
+  if(!webAppUrl){ setSync("local"); return; }
+  setSync("busy");
+  try{
+    const res = await fetch(webAppUrl, {method:"GET"});
+    const data = await res.json();
+    if(data && data.ok && Array.isArray(data.rows)){
+      positions = data.rows.filter(r=>r.id).map(r=>({
+        id:String(r.id), status:r.status||"Open", symbol:r.symbol, type:r.type,
+        strike:r.strike, expiration:fmtSheetDate(r.expiration), contracts:r.contracts,
+        premium:r.premium, entryDate:fmtSheetDate(r.entryDate),
+        costBasis:r.costBasis===""?"":r.costBasis, notes:r.notes||"",
+        closeDate:fmtSheetDate(r.closeDate), buyBackPremium:r.buyBackPremium
+      }));
+      renderAll();
+      setSync("on");
+      toast(`Synced ${positions.length} position${positions.length===1?"":"s"}`);
+    } else setSync("err");
+  }catch(err){ setSync("err"); }
+}
+function fmtSheetDate(v){
+  if(!v) return "";
+  if(typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0,10);
+  const d = new Date(v);
+  if(isNaN(d)) return "";
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+function setSync(state){
+  const pill = $("#syncPill"), txt = $("#syncTxt");
+  pill.className = "sync";
+  if(state==="on"){ pill.classList.add("on"); txt.textContent="Synced"; }
+  else if(state==="busy"){ pill.classList.add("busy"); txt.textContent="Syncing"; }
+  else if(state==="err"){ pill.classList.add("err"); txt.textContent="Offline"; }
+  else txt.textContent = webAppUrl ? "Ready" : "Local";
+}
+
+/* ---------------- form ---------------- */
+function readForm(){
+  return {
+    symbol: $("#f-symbol").value.trim().toUpperCase(),
+    type: pcType,
+    strike: $("#f-strike").value,
+    premium: $("#f-premium").value,
+    expiration: $("#f-exp").value,
+    contracts: $("#f-contracts").value || "1",
+    entryDate: $("#f-entry").value,
+    costBasis: $("#f-cost").value,
+    notes: $("#f-notes").value.trim()
+  };
+}
+function updatePreview(){
+  const f = readForm();
+  const d = derive({...f, status:"Open"});
+  $("#pv-total").textContent = money(d.totalPremium);
+  $("#pv-be").textContent = f.strike ? "$"+fmtStrike(d.breakEven) : "—";
+  $("#pv-coll").textContent = d.collateral ? money0(d.collateral) : "—";
+  $("#pv-dte").textContent = f.expiration ? (d.dte<0?d.dte:d.dte)+"d" : "—";
+  $("#pv-roc").textContent = d.roc ? pct(d.roc) : "—";
+  $("#pv-ann").textContent = d.annualized ? pct(d.annualized) : "—";
+  $("#pv-term").textContent = f.expiration ? d.term+"d" : "—";
+}
+function clearForm(){
+  ["f-symbol","f-strike","f-premium","f-exp","f-cost","f-notes"].forEach(id=>$("#"+id).value="");
+  $("#f-contracts").value="1";
+  $("#f-entry").value = todayStr();
+  setPC("call");
+  editingId = null;
+  $("#formTitle").textContent = "New position";
+  $("#saveBtn").textContent = "Save position";
+  $("#detailsBody").classList.remove("show");
+  updatePreview();
+}
+function startEdit(p){
+  editingId = p.id;
+  $("#f-symbol").value = p.symbol||"";
+  setPC(p.type);
+  $("#f-strike").value = p.strike||"";
+  $("#f-premium").value = p.premium||"";
+  $("#f-exp").value = p.expiration||"";
+  $("#f-contracts").value = p.contracts||"1";
+  $("#f-entry").value = p.entryDate||todayStr();
+  $("#f-cost").value = p.costBasis||"";
+  $("#f-notes").value = p.notes||"";
+  $("#formTitle").textContent = "Edit position";
+  $("#saveBtn").textContent = "Update position";
+  if(p.costBasis || p.notes || p.entryDate) $("#detailsBody").classList.add("show");
+  updatePreview();
+  switchView("new");
+}
+function saveForm(){
+  const f = readForm();
+  if(!f.symbol){ toast("Enter a symbol","err"); switchView("new"); return; }
+  if(!f.strike || !f.premium){ toast("Strike and premium required","err"); return; }
+  if(!f.expiration){ toast("Pick an expiration date","err"); return; }
+  if(editingId){
+    const p = positions.find(x=>x.id===editingId);
+    Object.assign(p, f);
+    commit(p);
+    toast("Position updated");
+  } else {
+    const p = {id:uid(), status:"Open", closeDate:"", buyBackPremium:"", ...f};
+    commit(p);
+    toast("Position saved");
+  }
+  clearForm();
+  switchView("positions");
+}
+function setPC(t){
+  pcType = t;
+  $$("#pcToggle button").forEach(b=>b.classList.toggle("active", b.dataset.pc===t));
+}
+
+/* ---------------- views + nav ---------------- */
+function switchView(v){
+  $$(".view").forEach(el=>el.classList.remove("active"));
+  $("#view-"+v).classList.add("active");
+  $$(".nav-btn").forEach(b=>b.classList.toggle("active", b.dataset.nav===v));
+  window.scrollTo(0,0);
+}
+function renderAll(){ renderSummary(); renderList(); }
+
+/* ---------------- toast ---------------- */
+let toastTimer;
+function toast(msg, type){
+  const t = $("#toast");
+  t.textContent = msg;
+  t.className = "show" + (type==="err"?" err":"");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.className = t.className.replace("show","").trim(), 2400);
+}
+
+/* ---------------- events ---------------- */
+$$(".nav-btn").forEach(b=>b.addEventListener("click",()=>{
+  const v = b.dataset.nav;
+  if(v==="settings"){ $("#settingsModal").classList.add("show"); return; }
+  if(v==="new" && !editingId) clearForm();
+  switchView(v);
+}));
+$("#pcToggle").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b){ setPC(b.dataset.pc); updatePreview(); } });
+$("#detailsToggle").addEventListener("click", ()=>$("#detailsBody").classList.toggle("show"));
+["f-symbol","f-strike","f-premium","f-exp","f-contracts","f-entry","f-cost"].forEach(id=>{
+  $("#"+id).addEventListener("input", updatePreview);
+});
+$("#f-symbol").addEventListener("input", e=>{ e.target.value = e.target.value.toUpperCase(); });
+$("#saveBtn").addEventListener("click", saveForm);
+$("#sortSeg").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  sortMode = b.dataset.sort;
+  $$("#sortSeg button").forEach(x=>x.classList.toggle("active",x===b));
+  renderList();
+});
+$("#closeSettings").addEventListener("click", ()=>$("#settingsModal").classList.remove("show"));
+$("#settingsModal").addEventListener("click", e=>{ if(e.target.id==="settingsModal") $("#settingsModal").classList.remove("show"); });
+$("#saveUrlBtn").addEventListener("click", ()=>{
+  const u = $("#f-url").value.trim();
+  if(u && !/^https:\/\/script\.google\.com\/.*\/exec$/.test(u)){
+    toast("That doesn't look like an /exec URL","err");
+  }
+  webAppUrl = u;
+  $("#settingsModal").classList.remove("show");
+  loadFromSheet();
+});
+
+/* ---------------- boot ---------------- */
+$("#f-entry").value = todayStr();
+$("#f-url").value = webAppUrl;
+updatePreview();
+renderAll();
+if(webAppUrl) loadFromSheet(); else setSync("local");
+</script>
+</body>
+</html>
