@@ -56,7 +56,7 @@
   header.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
   header.top h1{font-size:19px;font-weight:700;letter-spacing:-.02em;margin:0;display:flex;align-items:center;gap:9px}
   header.top h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--emerald);box-shadow:0 0 12px var(--emerald)}
-  .sync{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border:1px solid var(--line);padding:5px 10px;border-radius:999px;background:var(--surface)}
+  .sync{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border:1px solid var(--line);padding:5px 10px;border-radius:999px;background:var(--surface);cursor:pointer}
   .sync .led{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:.3s}
   .sync.on .led{background:var(--emerald);box-shadow:0 0 8px var(--emerald)}
   .sync.busy .led{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:pulse 1s infinite}
@@ -406,6 +406,8 @@ let editingId = null;             // id being edited, else null
 let expandedId = null;            // card whose actions are open
 let webAppUrl = SHEET_WEBAPP_URL;
 let pcType = "call";
+let quotes = {};           // {SYMBOL: price} from GOOGLEFINANCE, refreshed periodically
+let quotesAsOf = null;     // ISO timestamp of last successful quote fetch
 
 /* ---------------- helpers ---------------- */
 const $ = s => document.querySelector(s);
@@ -475,7 +477,15 @@ function derive(p){
     earnings = { date:p.earningsDate, daysToEarn, level };
   }
 
-  return {totalPremium,dte,term,breakEven,collateral,roc,annualized,maxProfit,elapsedPct,realizedPL,daysHeld,earnings};
+  // live stock price — only for open positions with a known quote from GOOGLEFINANCE.
+  let live = null;
+  const rawPrice = quotes[(p.symbol || "").toUpperCase()];
+  if (p.status === "Open" && rawPrice !== undefined && rawPrice !== null) {
+    const price = num(rawPrice);
+    if (price > 0) live = { price };
+  }
+
+  return {totalPremium,dte,term,breakEven,collateral,roc,annualized,maxProfit,elapsedPct,realizedPL,daysHeld,earnings,live};
 }
 
 /* ---------------- rendering ---------------- */
@@ -562,6 +572,10 @@ function renderList(){
         <div class="stat"><div class="k">Return</div><div class="v num">${pct(d.roc)}</div></div>
         <div class="stat"><div class="k">Annual.</div><div class="v num">${pct(d.annualized)}</div></div>
       </div>
+
+      ${open && d.live ? `<div class="stat-row" style="grid-template-columns:1fr">
+        <div class="stat"><div class="k">Stock price</div><div class="v num">$${fmtStrike(d.live.price)}</div></div>
+      </div>` : ""}
 
       <div class="expand-hint" data-role="hint">${expandedId===p.id?"":"tap to manage ▾"}</div>
 
@@ -729,6 +743,19 @@ async function loadFromSheet(){
     } else setSync("err");
   }catch(err){ setSync("err"); }
 }
+async function fetchQuotes(){
+  if(!webAppUrl) return;
+  try{
+    const sep = webAppUrl.includes("?") ? "&" : "?";
+    const res = await fetch(webAppUrl + sep + "action=quotes", {method:"GET"});
+    const data = await res.json();
+    if(data && data.ok && data.quotes){
+      quotes = data.quotes;
+      quotesAsOf = data.asOf;
+      renderAll();
+    }
+  }catch(err){ /* best-effort — a stale/missing price just leaves those stats blank */ }
+}
 function fmtSheetDate(v){
   if(!v) return "";
   if(typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0,10);
@@ -884,7 +911,12 @@ $("#saveUrlBtn").addEventListener("click", ()=>{
   }
   webAppUrl = u;
   $("#settingsModal").classList.remove("show");
-  loadFromSheet();
+  loadFromSheet().then(fetchQuotes);
+});
+
+// Tapping the sync pill is also a manual "refresh now" for prices + positions.
+$("#syncPill").addEventListener("click", ()=>{
+  if(webAppUrl) loadFromSheet().then(fetchQuotes);
 });
 
 /* ---------------- boot ---------------- */
@@ -892,7 +924,12 @@ $("#f-entry").value = todayStr();
 $("#f-url").value = webAppUrl;
 updatePreview();
 renderAll();
-if(webAppUrl) loadFromSheet(); else setSync("local");
+if(webAppUrl){
+  loadFromSheet().then(fetchQuotes);
+  setInterval(fetchQuotes, 3 * 60 * 1000); // refresh stock prices every 3 min while the app is open
+} else {
+  setSync("local");
+}
 </script>
 </body>
 </html>
