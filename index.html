@@ -81,6 +81,12 @@
   /* ---- list controls ---- */
   .list-head{display:flex;align-items:center;justify-content:space-between;margin:6px 2px 12px}
   .list-head .eyebrow{color:var(--muted)}
+  .search-wrap{position:relative;margin:0 0 14px}
+  .search-wrap .search-ico{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:18px;pointer-events:none}
+  .search-wrap input{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--text);font-size:15px;padding:12px 40px 12px 40px;font-family:var(--sans);outline:none;letter-spacing:.02em}
+  .search-wrap input:focus{border-color:var(--emerald)}
+  .search-wrap input::placeholder{color:var(--faint);letter-spacing:0}
+  .search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:var(--surface-3);border:0;color:var(--muted);width:26px;height:26px;border-radius:50%;font-size:15px;line-height:1}
   .seg-mini{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px}
   .seg-mini button{border:0;background:transparent;color:var(--muted);font-size:11px;font-weight:600;padding:5px 11px;border-radius:999px;font-family:var(--sans)}
   .seg-mini button.active{background:var(--surface-3);color:var(--text)}
@@ -104,6 +110,9 @@
   .chip.closed{color:var(--muted);background:var(--surface-3)}
   .chip.rolled{color:var(--cyan);background:var(--cyan-dim)}
   .contract-line{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .earn-flag{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:8px;margin-top:9px}
+  .earn-flag.warn{color:var(--red);background:var(--red-dim)}
+  .earn-flag.calm{color:var(--muted);background:var(--surface-3)}
   .card-prem{text-align:right;flex-shrink:0}
   .card-prem .p{font-size:20px;font-weight:700;color:var(--emerald)}
   .card-prem .l{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
@@ -240,9 +249,14 @@
       <span class="eyebrow">Positions</span>
       <div class="seg-mini" id="sortSeg">
         <button data-sort="exp" class="active">Expiration</button>
-        <button data-sort="prem">Premium</button>
         <button data-sort="open">Open</button>
       </div>
+    </div>
+
+    <div class="search-wrap">
+      <span class="search-ico">⌕</span>
+      <input type="text" id="searchBox" placeholder="Filter by symbol — e.g. TSLA" autocapitalize="characters" autocomplete="off" spellcheck="false">
+      <button type="button" id="searchClear" class="search-clear" style="display:none">×</button>
     </div>
 
     <div id="posList"></div>
@@ -291,7 +305,7 @@
         </div>
       </div>
 
-      <button type="button" class="details-toggle" id="detailsToggle">＋ Optional details (entry date, cost basis, notes)</button>
+      <button type="button" class="details-toggle" id="detailsToggle">＋ Optional details (entry date, earnings, cost basis, notes)</button>
       <div class="details-body" id="detailsBody">
         <div class="two-col">
           <div class="field">
@@ -299,10 +313,14 @@
             <input type="date" id="f-entry">
           </div>
           <div class="field">
-            <label>Cost basis <span class="opt">/ share</span></label>
-            <div class="prefix-wrap"><span class="pfx">$</span>
-              <input type="number" id="f-cost" class="num" inputmode="decimal" placeholder="—" step="0.01">
-            </div>
+            <label>Earnings date <span class="opt">next</span></label>
+            <input type="date" id="f-earnings">
+          </div>
+        </div>
+        <div class="field">
+          <label>Cost basis <span class="opt">/ share, for covered calls</span></label>
+          <div class="prefix-wrap"><span class="pfx">$</span>
+            <input type="number" id="f-cost" class="num" inputmode="decimal" placeholder="—" step="0.01">
           </div>
         </div>
         <div class="field">
@@ -383,6 +401,7 @@ const SHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbye9CPGQgPbSh8
 /* ---------------- state ---------------- */
 let positions = [];               // in-memory source mirror of the sheet
 let sortMode = "exp";
+let searchQuery = "";
 let editingId = null;             // id being edited, else null
 let expandedId = null;            // card whose actions are open
 let webAppUrl = SHEET_WEBAPP_URL;
@@ -444,7 +463,19 @@ function derive(p){
     daysHeld = daysBetween(entry, cd);
   }
 
-  return {totalPremium,dte,term,breakEven,collateral,roc,annualized,maxProfit,elapsedPct,realizedPL,daysHeld};
+  // earnings info
+  let earnings = null;
+  const earn = parseDate(p.earningsDate);
+  if(earn){
+    const daysToEarn = daysBetween(today, earn);
+    let level;
+    if(daysToEarn < 0) level = "passed";
+    else if(exp && earn > exp) level = "after";
+    else level = "through";
+    earnings = { date:p.earningsDate, daysToEarn, level };
+  }
+
+  return {totalPremium,dte,term,breakEven,collateral,roc,annualized,maxProfit,elapsedPct,realizedPL,daysHeld,earnings};
 }
 
 /* ---------------- rendering ---------------- */
@@ -489,7 +520,15 @@ function renderList(){
     return;
   }
   host.innerHTML = "";
-  sortPositions(positions).forEach(p=>{
+  let list = positions;
+  if(searchQuery){
+    list = positions.filter(p => (p.symbol||"").toUpperCase().includes(searchQuery));
+    if(!list.length){
+      host.innerHTML = `<div class="empty"><div class="big">No matches for "${escapeHtml(searchQuery)}"</div><div class="sub">No positions with that symbol.<br>Clear the filter to see everything.</div></div>`;
+      return;
+    }
+  }
+  sortPositions(list).forEach(p=>{
     const d = derive(p);
     const open = isOpen(p);
     const el = document.createElement("div");
@@ -509,6 +548,8 @@ function renderList(){
         <div class="card-prem">${premBlock}</div>
       </div>
       <div class="contract-line num">${int(p.contracts)}× · $${fmtStrike(p.strike)} strike · exp ${shortDate(p.expiration)}${p.entryDate?` · in ${shortDate(p.entryDate)}`:""}</div>
+
+      ${earningsBadge(d.earnings, open)}
 
       ${open ? `<div class="decay">
         <div class="decay-track"><div class="decay-fill" style="width:${(d.elapsedPct*100).toFixed(0)}%;background:${decayColor(d.elapsedPct,d.dte)}"></div></div>
@@ -566,6 +607,17 @@ function renderList(){
 
 function fmtStrike(n){ const v = num(n); return v.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function earningsBadge(e, open){
+  if(!e || !open) return "";
+  if(e.level === "through"){
+    const when = e.daysToEarn === 0 ? "today" : `in ${e.daysToEarn}d`;
+    return `<div class="earn-flag warn">⚡ Earnings ${shortDate(e.date)} · holding through (${when})</div>`;
+  }
+  if(e.level === "after"){
+    return `<div class="earn-flag calm">next earnings ${shortDate(e.date)} · after expiration</div>`;
+  }
+  return "";
+}
 
 /* ---------------- actions ---------------- */
 function handleAction(action, id, btn){
@@ -620,6 +672,7 @@ function serialize(p){
     id:p.id, timestamp:new Date().toISOString(), status:p.status,
     symbol:p.symbol, type:p.type, strike:num(p.strike), expiration:p.expiration,
     contracts:int(p.contracts), premium:num(p.premium), entryDate:p.entryDate,
+    earningsDate:p.earningsDate||"",
     costBasis:p.costBasis===""?"":num(p.costBasis), notes:p.notes||"",
     totalPremium:d.totalPremium, dte:d.dte, breakEven:round2(d.breakEven),
     collateral:d.collateral, roc:round4(d.roc), annualized:round4(d.annualized),
@@ -666,6 +719,7 @@ async function loadFromSheet(){
         id:String(r.id), status:r.status||"Open", symbol:r.symbol, type:r.type,
         strike:r.strike, expiration:fmtSheetDate(r.expiration), contracts:r.contracts,
         premium:r.premium, entryDate:fmtSheetDate(r.entryDate),
+        earningsDate:fmtSheetDate(r.earningsDate),
         costBasis:r.costBasis===""?"":r.costBasis, notes:r.notes||"",
         closeDate:fmtSheetDate(r.closeDate), buyBackPremium:r.buyBackPremium
       }));
@@ -702,6 +756,7 @@ function readForm(){
     expiration: $("#f-exp").value,
     contracts: $("#f-contracts").value || "1",
     entryDate: $("#f-entry").value,
+    earningsDate: $("#f-earnings").value,
     costBasis: $("#f-cost").value,
     notes: $("#f-notes").value.trim()
   };
@@ -718,7 +773,7 @@ function updatePreview(){
   $("#pv-term").textContent = f.expiration ? d.term+"d" : "—";
 }
 function clearForm(){
-  ["f-symbol","f-strike","f-premium","f-exp","f-cost","f-notes"].forEach(id=>$("#"+id).value="");
+  ["f-symbol","f-strike","f-premium","f-exp","f-earnings","f-cost","f-notes"].forEach(id=>$("#"+id).value="");
   $("#f-contracts").value="1";
   $("#f-entry").value = todayStr();
   setPC("call");
@@ -737,11 +792,12 @@ function startEdit(p){
   $("#f-exp").value = p.expiration||"";
   $("#f-contracts").value = p.contracts||"1";
   $("#f-entry").value = p.entryDate||todayStr();
+  $("#f-earnings").value = p.earningsDate||"";
   $("#f-cost").value = p.costBasis||"";
   $("#f-notes").value = p.notes||"";
   $("#formTitle").textContent = "Edit position";
   $("#saveBtn").textContent = "Update position";
-  if(p.costBasis || p.notes || p.entryDate) $("#detailsBody").classList.add("show");
+  if(p.costBasis || p.notes || p.entryDate || p.earningsDate) $("#detailsBody").classList.add("show");
   updatePreview();
   switchView("new");
 }
@@ -801,6 +857,18 @@ $("#detailsToggle").addEventListener("click", ()=>$("#detailsBody").classList.to
 });
 $("#f-symbol").addEventListener("input", e=>{ e.target.value = e.target.value.toUpperCase(); });
 $("#saveBtn").addEventListener("click", saveForm);
+$("#searchBox").addEventListener("input", e=>{
+  e.target.value = e.target.value.toUpperCase();
+  searchQuery = e.target.value.trim();
+  $("#searchClear").style.display = searchQuery ? "block" : "none";
+  renderList();
+});
+$("#searchClear").addEventListener("click", ()=>{
+  searchQuery = "";
+  $("#searchBox").value = "";
+  $("#searchClear").style.display = "none";
+  renderList();
+});
 $("#sortSeg").addEventListener("click", e=>{
   const b = e.target.closest("button"); if(!b) return;
   sortMode = b.dataset.sort;
